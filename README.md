@@ -2,6 +2,37 @@
 
 Python client for connecting to autonomous vehicle simulation server.
 
+## Getting Started
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/VCCRacing.git
+cd VCCRacing
+```
+
+**Note:** This repository uses Git LFS for large files. Make sure you have Git LFS installed:
+
+```bash
+# Install Git LFS (if not already installed)
+git lfs install
+
+# Pull LFS files
+git lfs pull
+```
+
+### Extract Demo Documentation
+
+After cloning, you'll find `DemoVCCRacing.pdf` in the repository. This is actually a compressed archive:
+
+```bash
+# Rename and extract the demo package
+mv DemoVCCRacing.pdf DemoVCCRacing.zip
+unzip DemoVCCRacing.zip
+```
+
+This archive contains demo assets and documentation for the VCC Racing project.
+
 ## Demo Map
 
 [Download Demo Map](https://drive.google.com/file/d/116lsc7qDcgMXCCkG5WTnyUYrWYFM1lwj/view?usp=sharing)
