@@ -174,21 +174,21 @@ class AVClient:
 
         try:
             # Send state data request
-            print("[DEBUG] Sending state data request...")
+            # print("[DEBUG] Sending state data request...")
             self.socket.sendall(self._create_command_json(CommandMode.STATE_DATA))
 
             # Receive data length
-            print("[DEBUG] Waiting for data length...")
+            # print("[DEBUG] Waiting for data length...")
             length_bytes = self.socket.recv(8)
             if len(length_bytes) != 8:
                 raise DataRetrievalError("Failed to receive data length")
 
             data_length = int.from_bytes(length_bytes, "big")
-            print(f"[DEBUG] Expecting {data_length} bytes of state data")
+            # print(f"[DEBUG] Expecting {data_length} bytes of state data")
 
             # Receive state data
             data = self._receive_data(data_length)
-            print("[DEBUG] State data received successfully")
+            # print("[DEBUG] State data received successfully")
             return json.loads(data)
 
         except socket.timeout:
@@ -222,23 +222,23 @@ class AVClient:
 
         try:
             # Send image request
-            print(f"[DEBUG] Sending {image_type} image request...")
+            # print(f"[DEBUG] Sending {image_type} image request...")
             self.socket.sendall(self._create_command_json(mode))
 
             # Receive data length
-            print(f"[DEBUG] Waiting for {image_type} image length...")
+            # print(f"[DEBUG] Waiting for {image_type} image length...")
             length_bytes = self.socket.recv(8)
             if len(length_bytes) != 8:
                 raise DataRetrievalError("Failed to receive data length")
 
             data_length = int.from_bytes(length_bytes, "big")
-            print(f"[DEBUG] Expecting {data_length} bytes of {image_type} image data")
+            # print(f"[DEBUG] Expecting {data_length} bytes of {image_type} image data")
 
             # Receive image data
             data = self._receive_data(data_length)
 
             # Decode image
-            print(f"[DEBUG] Decoding {image_type} image...")
+            # print(f"[DEBUG] Decoding {image_type} image...")
             image = cv2.imdecode(
                 np.frombuffer(data, np.uint8),
                 cv2.IMREAD_UNCHANGED
@@ -247,7 +247,7 @@ class AVClient:
             if image is None:
                 raise DataRetrievalError("Failed to decode image data")
 
-            print(f"[DEBUG] {image_type.capitalize()} image received successfully")
+            # print(f"[DEBUG] {image_type.capitalize()} image received successfully")
             return image
 
         except socket.timeout:
@@ -272,6 +272,7 @@ class AVClient:
             Segmented camera image as numpy array
         """
         return self.get_image(CommandMode.SEGMENTED_IMAGE)
+
 
 
 def parse_arguments():
@@ -324,6 +325,86 @@ Examples:
     return parser.parse_args()
 
 
+def calculate_steering_angle(segmented_image: np.ndarray) -> Tuple[int, np.ndarray]:
+    """
+    Calculate steering angle based on segmented lane image.
+
+    Args:
+        segmented_image: Segmented camera image with lane markings (BGR format)
+
+    Returns:
+        Tuple of (steering angle command, visualization image)
+    """
+    # Get image dimensions
+    height, width = segmented_image.shape[:2]
+
+    # Create visualization image
+    vis_image = segmented_image.copy()
+
+    # Define road color in BGR format (magenta/purple road)
+    road_color_bgr = np.array([255, 21, 180])
+
+    # Create mask for road color (with some tolerance)
+    lower_bound = np.array([240, 10, 165])
+    upper_bound = np.array([255, 35, 195])
+    road_mask = cv2.inRange(segmented_image, lower_bound, upper_bound)
+
+    # Focus on bottom half of image (closer road region for steering)
+    roi_height = height // 2
+    roi = road_mask[roi_height:, :]
+
+    # Draw ROI boundary
+    cv2.line(vis_image, (0, roi_height), (width, roi_height), (0, 255, 255), 2)
+
+    # Find road center using moments
+    moments = cv2.moments(roi)
+
+    # Image center
+    image_center = width // 2
+
+    # Draw image center line
+    cv2.line(vis_image, (image_center, 0), (image_center, height), (0, 255, 0), 2)
+
+    if moments['m00'] == 0:
+        # No road detected, go straight
+        cv2.putText(vis_image, "NO ROAD DETECTED", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        return 0, vis_image
+
+    # Calculate centroid of detected road
+    cx = int(moments['m10'] / moments['m00'])
+    cy = int(moments['m01'] / moments['m00']) + roi_height
+
+    # Draw road centroid
+    cv2.circle(vis_image, (cx, cy), 8, (0, 0, 255), -1)
+    cv2.circle(vis_image, (cx, cy), 10, (255, 255, 255), 2)
+
+    # Draw steering direction line
+    cv2.line(vis_image, (image_center, height - 10), (cx, cy), (0, 255, 255), 3)
+    cv2.arrowedLine(vis_image, (image_center, height - 10), (cx, cy), (0, 255, 255), 2, tipLength=0.3)
+
+    # Calculate offset from center
+    offset = cx - image_center
+
+    # Convert offset to steering angle (-25 to +25)
+    max_angle = 25
+    steering_angle = int(np.clip(offset / (width / 2) * max_angle, -max_angle, max_angle))
+
+    # Add text overlay
+    cv2.putText(vis_image, f"Angle: {steering_angle:+d}", (10, 30),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    cv2.putText(vis_image, f"Offset: {offset:+d}px", (10, 60),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    # Draw steering direction indicator
+    direction = "LEFT" if steering_angle < 0 else "RIGHT" if steering_angle > 0 else "STRAIGHT"
+    color = (0, 165, 255) if steering_angle < 0 else (0, 255, 255) if steering_angle > 0 else (0, 255, 0)
+    cv2.putText(vis_image, direction, (10, 90),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+    return steering_angle, vis_image
+
+
 def main():
     """Main execution loop for AV client demonstration."""
     args = parse_arguments()
@@ -334,7 +415,7 @@ def main():
         with AVClient(host=args.host, port=args.port, timeout=args.timeout) as client:
             print("[INFO] Starting main loop. Press 'q' to exit.\n")
             while True:
-                print("[LOOP] Fetching vehicle data...")
+                # print("[LOOP] Fetching vehicle data...")
 
                 # Your application logic here
 
@@ -343,13 +424,17 @@ def main():
                 raw_image = client.get_raw_image()
                 segmented_image = client.get_segmented_image()
 
+                # Calculate steering angle from segmented image
+                steering_angle, vis_image = calculate_steering_angle(segmented_image)
+
                 # Display data
-                print(f"[DATA] State: {state}")
+                # print(f"[DATA] State: {state}")
+                print(f"[CONTROL] Steering angle: {steering_angle}")
                 cv2.imshow('Raw Camera', raw_image)
-                cv2.imshow('Segmented Camera', segmented_image)
+                cv2.imshow('Steering Visualization', vis_image)
 
                 # Send control commands (max speed: 90, max angle: ±25)
-                client.set_control(speed=10, angle=0)
+                client.set_control(speed=20, angle=steering_angle)
 
                 # Exit on 'q' key
                 key = cv2.waitKey(1)
